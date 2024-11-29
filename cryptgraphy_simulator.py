@@ -19,10 +19,11 @@ def public_key_encrypt(key, message):
 
 # call this function to decrypt with a private key
 def private_key_decrypt(key, cyphertext):
-    if len(cyphertext) < 6 or cyphertext[:12] != 'E_(' or ')[' not in cyphertext or cyphertext[-1] != ']':
+    if len(cyphertext) < 6 or cyphertext[:3] != 'E_(' or ')[' not in cyphertext or cyphertext[-1] != ']':
         raise AssertionError('"{}" is not formatted as an asymmetric cyphertext'.format(cyphertext))
     # using eval is very bad practice. can you guess why?
-    public_key = eval(cyphertext[3:cyphertext.index(')[')+1])
+    public_key = eval(cyphertext[2:cyphertext.index(')[')+1])
+    #print(public_key)
     if type(public_key) != tuple or type(public_key[0]) != int or type(public_key[1]) != int:
         raise AssertionError('"{}" does not have a properly formatted asymmetric key'.format(cyphertext))
     if public_key[0]+key != public_key[1]:
@@ -35,9 +36,10 @@ def private_key_decrypt(key, cyphertext):
 def verify_certificate(public_key, certificate):
     try:
         assert certificate[0] == 'D'
+        public_key = eval(public_key)
         return private_key_decrypt(public_key[0], 'E' + certificate[1:])
-    except AssertionError:
-        raise AssertionError('Could not verify the authenticity of certificate "{}" with certificate authority public key "{}"'.format(certificate, public_key))
+    except AssertionError as a:
+        raise AssertionError('Could not verify the authenticity of certificate "{}" with certificate authority public key "{}". {}'.format(certificate, public_key, str(a)))
     
 ## SYMMETRIC CRYPTOGRAPHY SIMULATIONS ##
 
@@ -50,19 +52,19 @@ def symmetric_encrypt(key, message):
 
 # use this to decrypt with a symmetric key
 def symmetric_decrypt(key, cyphertext):
-    if len(cyphertext) < 4 or cyphertext[:2] != 'E_' or cyphertext[2] not in '0123456789' or '[' not in cyphertext or cyphertext[-1] != ']':
+    if len(cyphertext) < 4 or cyphertext[:10] != 'symmetric_' or cyphertext[10] not in '0123456789' or '[' not in cyphertext or cyphertext[-1] != ']':
         raise AssertionError('"{}" is not formatted as an symmetric cyphertext'.format(cyphertext))
     try:
-        cyphertext_key = int(cyphertext[2:cyphertext.index('[')])
+        cyphertext_key = int(cyphertext[10:cyphertext.index('[')])
     except TypeError:
         raise AssertionError('"{}" does not have a properly formatted symmetric key'.format(cyphertext))
-    if cyphertext_key != key:
+    if cyphertext_key != int(key):
         raise AssertionError("{} is the wrong key for {}".format(cyphertext_key, cyphertext))
     return cyphertext[cyphertext.index('[')+1:-1]
 
 # use this to generate a simulated HMAC
 def generate_HMAC(key, message):
-    return hash(str(key) + message)
+    return abs(hash(str(key) + message))
 
 ## post-handshake TLS ##
 
@@ -76,11 +78,14 @@ def tls_encode(key, message):
 def tls_decode(key, message):
     if len(message) < 7 or message[:5] != 'HMAC_' or message[5] not in '0123456789' or '[' not in message or message[-1] != ']':
         raise AssertionError(f'"{message}" does not have a properly formatted HMAC applied')
+    #(message[5:message.index('[')])
     try:
         HMAC = int(message[5:message.index('[')])
     except TypeError:
         raise AssertionError(f'"{message}" does not have a properly formatted HMAC applied')
     message = message[message.index('[')+1:-1]
+    #print(message, key)
+    #print(generate_HMAC(key, message))
     if HMAC != generate_HMAC(key, message):
         raise AssertionError(f"Integrity of message {message} could not be authenticated with HMAC {HMAC} and key {key}")
     return symmetric_decrypt(key, message)

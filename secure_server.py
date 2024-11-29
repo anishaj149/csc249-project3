@@ -13,6 +13,9 @@ parser.add_argument('--CA_IP', help='IP address at which the certificate authori
 parser.add_argument('--CA_port', help='Port number at which the certificate authority is hosted', **arguments.CA_port_arg)
 args = parser.parse_args()
 
+SERVER_IP = args.server_IP  # Address to listen on
+SERVER_PORT = args.server_port  # Port to listen on (non-privileged ports are > 1023)
+
 ### Instructions ###
 # In order to execute TLS with a client, a server needs to do the
 # following once, before accepting incoming connections:
@@ -25,7 +28,7 @@ args = parser.parse_args()
 
 # Format and return a certificate containing the server's socket information and public key
 def format_certificate(public_key):
-    unsigned_certificate = '' # replace this line
+    unsigned_certificate = '$' + str(SERVER_IP)+'$'+ str(SERVER_PORT)+ '$' + str(public_key) # replace this line
     print(f"Prepared the formatted unsigned certificate '{unsigned_certificate}'")
     return unsigned_certificate
 
@@ -52,8 +55,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
 print(f"Received signed certificate '{signed_certificate}' from the certificate authority")
 
-SERVER_IP = args.server_IP  # Address to listen on
-SERVER_PORT = args.server_port  # Port to listen on (non-privileged ports are > 1023)
+
 
 def TLS_handshake_server(connection):
     ## Instructions ##
@@ -62,7 +64,14 @@ def TLS_handshake_server(connection):
     #    * A signed certificate variable should be available as 'signed_certificate'
     #  * Receive an encrypted symmetric key from the client
     #  * Return the symmetric key for use in further communications with the client
-    return 0
+    #with connection: 
+    conn.sendall(bytes(signed_certificate, 'utf-8')) #send a signed sertificate
+    #print(signed_certificate)
+    print("Server sent signed certificate to client. ")
+    encrypted_symmetric_key = connection.recv(1024).decode('utf-8') # receive key
+    if not encrypted_symmetric_key: return -1 
+    symmetric_key = cryptgraphy_simulator.private_key_decrypt(private_key, encrypted_symmetric_key) #decrypt 
+    return symmetric_key
 
 def process_message(message):
     # Change this function to change the service your server provides
@@ -77,12 +86,19 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     with conn:
         print(f"Connected established with {addr}")
         symmetric_key = TLS_handshake_server(conn)
+            
         while True:
+            if symmetric_key == -1: 
+                print("There was a problem in exchanging the symmetric key.")
+                break
+            else:
+                print("Symmetric key exchanged successfully.")
+
             data = conn.recv(1024)
             if not data:
                 break
             print(f"Received client message: '{data!r}' [{len(data)} bytes]")
-            message = cryptgraphy_simulator.tls_decode(data.decode('utf-8'))
+            message = cryptgraphy_simulator.tls_decode(symmetric_key, data.decode('utf-8'))
             print(f"Decoded message '{message}' from client")
             response = process_message(message)
             print(f"Responding '{response}' to the client")

@@ -15,6 +15,7 @@ VPN_PORT = args.VPN_port  # Port to listen on (non-privileged ports are > 1023)
 
 def parse_message(message):
     message = message.decode("utf-8")
+    print(message)
     # Parse the application-layer header into the destination SERVER_IP, destination SERVER_PORT,
     # and message to forward to that destination
     # raise NotImplementedError("Your job is to fill this function in. Remove this line when you're done.")
@@ -22,6 +23,10 @@ def parse_message(message):
     SERVER_PORT = int(message[message.index('~IP~')+4:message.index('~port~')])
     message = message[message.index('~port~')+6:]
     return SERVER_IP, SERVER_PORT, message
+
+def get_ip_and_port(message):
+    message = message.decode("utf-8")
+    return message.split("$")[0], int(message.split("$")[1])
 
 print("VPN starting - listening for connections at IP", VPN_IP, "and port", VPN_PORT)
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
@@ -32,15 +37,27 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         print(f"Connected established with {client_addr}")
         data = client_conn.recv(1024)
         print(f"Received client message: '{data!r}' [{len(data)} bytes]")
-        SERVER_IP, SERVER_PORT, message = parse_message(data)
-        print("connecting to server at IP", SERVER_IP, "and port", SERVER_PORT)
+        SERVER_IP, SERVER_PORT = get_ip_and_port(data)
+
+        print("Connecting to server at IP", SERVER_IP, "and port", SERVER_PORT)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.connect((SERVER_IP, SERVER_PORT))
-            print(f"server connection established, sending message '{message}'")
-            server_socket.sendall(bytes(message, 'utf-8'))
-            print("message sent to server, waiting for reply")
+            print("Server connection established at IP", SERVER_IP, "and port", SERVER_PORT)
+
+            #handshake
+            cert = server_socket.recv(1024)
+            client_conn.sendall(cert)
+            key = client_conn.recv(1024)
+            server_socket.sendall(key)
+
+            #receive
+            message = client_conn.recv(1024)
+            print(f"Sending message '{message}' to server from client.")
+            server_socket.sendall(message)
+            print("Message sent to server, waiting for reply.")
             data = server_socket.recv(1024)
             print(f"Received server response: '{data!r}' [{len(data)} bytes]")
+
         print("Forwarding server response to client")
         client_conn.sendall(data)
 

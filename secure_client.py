@@ -62,18 +62,57 @@ def TLS_handshake_client(connection, server_ip=SERVER_IP, server_port=SERVER_POR
     #  * Return the symmetric key for use in further communications with the server
     # Make sure to use encode_message() on communications so the VPN knows which 
     # server to send them to
-    return 0
+    #with connection: 
+    #receive certificate
+    encrypted_certificate = s.recv(1024).decode('utf-8')
+    print("client has received certificate from server through vpn.")
+    #print(encrypted_certificate)
+
+    #verify certificate
+    try: 
+        certificate = cryptgraphy_simulator.verify_certificate(CA_public_key, encrypted_certificate)
+    except AssertionError as a: 
+        raise AssertionError("The certificate was unable to be verified.", str(a))
+
+    #print(certificate)
+    
+    cert_arr = certificate[1:].split("$")
+    server_ip_cert = cert_arr[0]
+    server_port_cert = int(cert_arr[1])
+    server_public_key = cert_arr[2]
+    #print(server_ip_cert, server_port_cert, server_public_key)
+
+    #verify server info
+    if server_ip != server_ip_cert or server_port != server_port_cert:
+        raise AssertionError("the certificate was received from the wrong server.")
+    
+    symmetric_key = cryptgraphy_simulator.generate_symmetric_key()
+    encrypted_symmetric_key = cryptgraphy_simulator.public_key_encrypt(server_public_key, symmetric_key)
+    #print(encrypted_symmetric_key)
+    
+    s.sendall(bytes(encrypted_symmetric_key, 'utf-8'))
+    return symmetric_key
 
 print("client starting - connecting to VPN at IP", VPN_IP, "and port", VPN_PORT)
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((VPN_IP, VPN_PORT))
-    symmetric_key = TLS_handshake_client(s)
-    MSG = encode_message(cryptgraphy_simulator.tls_encode(symmetric_key,MSG))
+    # allow vpn to establish connection
+    s.sendall(bytes(SERVER_IP + "$" + str(SERVER_PORT), 'utf-8'))
+    print("establishing connection to server at", SERVER_IP, "and port", SERVER_IP)
+
+    try:
+        symmetric_key = TLS_handshake_client(s)
+        print("Completed handshake.")
+    except AssertionError as a:
+        print(str(a), "Client is closing now.")
+        exit()
+
+    MSG = cryptgraphy_simulator.tls_encode(symmetric_key,MSG)
     print(f"connection established, sending message '{MSG}'")
     s.sendall(bytes(MSG, 'utf-8'))
     print("message sent, waiting for reply")
     data = s.recv(1024).decode('utf-8')
 
 print(f"Received raw response: '{data}' [{len(data)} bytes]")
-print(f"Decoded message {cryptgraphy_simulator.tls_decode(data)} from server")
+print(f"Decoded message {cryptgraphy_simulator.tls_decode(symmetric_key, data)} from server")
 print("client is done!")
